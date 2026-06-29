@@ -10,11 +10,11 @@ import { motion, AnimatePresence } from 'motion/react';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Cuti {
-  no_pengajuan: string;
+  no_pengajuan: string | null;
   tanggal: string | null;
   tanggal_awal: string | null;
   tanggal_akhir: string | null;
-  nik: string;
+  nik: string | null;
   nama_pegawai: string | null;
   departemen: string | null;
   urgensi: string | null;
@@ -38,11 +38,19 @@ interface Toast {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Nilai status yang dianggap "menunggu" / belum diproses */
-const PENDING_VALUES = ['menunggu', 'pending', 'diajukan', '', null, undefined];
-
-const isPending = (status: string | null | undefined) =>
-  PENDING_VALUES.includes(status?.toLowerCase() as any);
+/**
+ * Status dari DB: 'Proses Pengajuan', 'Disetujui', 'Ditolak'
+ * isPending menangkap semua variasi penulisan status pending
+ */
+const isPending = (status: string | null | undefined): boolean => {
+  if (status == null || status.trim() === '') return true;
+  const s = status.toLowerCase().trim();
+  return s === 'proses pengajuan'
+    || s === 'menunggu'
+    || s === 'pending'
+    || s === 'diajukan'
+    || s === 'proses';
+};
 
 const safeDate = (val: string | null | undefined): Date | null => {
   if (!val) return null;
@@ -102,7 +110,7 @@ function StatusBadge({ status }: { status: string | null }) {
     );
   return (
     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
-      <Clock className="w-3.5 h-3.5" /> Menunggu
+      <Clock className="w-3.5 h-3.5" /> Proses Pengajuan
     </span>
   );
 }
@@ -112,12 +120,20 @@ function StatusBadge({ status }: { status: string | null }) {
 interface CutiCardProps {
   item: Cuti;
   actionLoading: string | null;
-  onUpdate: (no: string, status: 'Disetujui' | 'Ditolak' | 'Menunggu') => Promise<void>;
+  onUpdate: (no: string, status: 'Disetujui' | 'Ditolak' | 'Proses Pengajuan') => Promise<void>;
 }
 
 function CutiCard({ item, actionLoading, onUpdate }: CutiCardProps) {
   const pending = isPending(item.status);
-  const isLoading = actionLoading === item.no_pengajuan;
+  // Pastikan no_pengajuan ada sebelum dipakai — jika null/undefined, semua aksi dinonaktifkan
+  const noPengajuan = item.no_pengajuan ?? '';
+  const isLoading = noPengajuan !== '' && actionLoading === noPengajuan;
+  const noId = noPengajuan === '';
+
+  const handleUpdate = (status: 'Disetujui' | 'Ditolak' | 'Proses Pengajuan') => {
+    if (noId) return;
+    onUpdate(noPengajuan, status);
+  };
 
   return (
     <motion.div
@@ -144,7 +160,7 @@ function CutiCard({ item, actionLoading, onUpdate }: CutiCardProps) {
                 <Briefcase className="w-3 h-3 shrink-0" />
                 <span className="truncate">{item.departemen ?? '—'}</span>
                 <span className="text-gray-300">·</span>
-                <span>{item.nik}</span>
+                <span>{item.nik ?? '—'}</span>
               </div>
             </div>
           </div>
@@ -183,7 +199,7 @@ function CutiCard({ item, actionLoading, onUpdate }: CutiCardProps) {
           {/* ID & Tanggal Pengajuan */}
           <div className="flex items-center gap-2 text-xs text-gray-400 pt-1">
             <FileText className="w-3.5 h-3.5 shrink-0" />
-            <span className="font-mono">{item.no_pengajuan}</span>
+            <span className="font-mono">{noPengajuan || <span className="italic">ID tidak tersedia</span>}</span>
             <span>·</span>
             <span>Dibuat: {fmtDate(item.tanggal, 'dd/MM/yyyy')}</span>
           </div>
@@ -192,10 +208,13 @@ function CutiCard({ item, actionLoading, onUpdate }: CutiCardProps) {
 
       {/* Action footer */}
       <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
-        {pending ? (
+        {noId ? (
+          <p className="text-xs text-center text-gray-400 italic">ID pengajuan tidak valid</p>
+        ) : pending ? (
+          /* Status: Proses Pengajuan — tampilkan Setujui & Tolak */
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => onUpdate(item.no_pengajuan, 'Disetujui')}
+              onClick={() => handleUpdate('Disetujui')}
               disabled={isLoading}
               className="flex items-center justify-center gap-1.5 bg-white border border-green-200 text-green-700 hover:bg-green-50 font-medium py-2 px-3 rounded-lg transition-colors disabled:opacity-50 text-sm"
             >
@@ -203,7 +222,7 @@ function CutiCard({ item, actionLoading, onUpdate }: CutiCardProps) {
               Setujui
             </button>
             <button
-              onClick={() => onUpdate(item.no_pengajuan, 'Ditolak')}
+              onClick={() => handleUpdate('Ditolak')}
               disabled={isLoading}
               className="flex items-center justify-center gap-1.5 bg-white border border-red-200 text-red-700 hover:bg-red-50 font-medium py-2 px-3 rounded-lg transition-colors disabled:opacity-50 text-sm"
             >
@@ -212,20 +231,39 @@ function CutiCard({ item, actionLoading, onUpdate }: CutiCardProps) {
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-400 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-green-400" />
-              Telah diproses
-            </span>
-            {/* Tombol reset ke Menunggu */}
+          /* Status: Disetujui / Ditolak — tampilkan kedua tombol + reset */
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => handleUpdate('Disetujui')}
+                disabled={isLoading || item.status === 'Disetujui'}
+                className={`flex items-center justify-center gap-1.5 font-medium py-2 px-3 rounded-lg transition-colors text-sm border ${item.status === 'Disetujui'
+                    ? 'bg-green-50 border-green-300 text-green-700 cursor-default opacity-70'
+                    : 'bg-white border-green-200 text-green-700 hover:bg-green-50 disabled:opacity-50'
+                  }`}
+              >
+                {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {item.status === 'Disetujui' ? 'Disetujui ✓' : 'Setujui'}
+              </button>
+              <button
+                onClick={() => handleUpdate('Ditolak')}
+                disabled={isLoading || item.status === 'Ditolak'}
+                className={`flex items-center justify-center gap-1.5 font-medium py-2 px-3 rounded-lg transition-colors text-sm border ${item.status === 'Ditolak'
+                    ? 'bg-red-50 border-red-300 text-red-700 cursor-default opacity-70'
+                    : 'bg-white border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50'
+                  }`}
+              >
+                {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                {item.status === 'Ditolak' ? 'Ditolak ✓' : 'Tolak'}
+              </button>
+            </div>
             <button
-              onClick={() => onUpdate(item.no_pengajuan, 'Menunggu')}
+              onClick={() => handleUpdate('Proses Pengajuan')}
               disabled={isLoading}
-              className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 hover:bg-gray-100 px-2 py-1 rounded-lg transition-colors disabled:opacity-50"
-              title="Reset ke Menunggu"
+              className="flex items-center justify-center gap-1 text-xs text-gray-400 hover:text-gray-700 hover:bg-gray-100 w-full py-1.5 rounded-lg transition-colors disabled:opacity-50 border border-transparent hover:border-gray-200"
             >
               {isLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-              Reset
+              Reset ke Proses Pengajuan
             </button>
           </div>
         )}
@@ -280,11 +318,12 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
 
   const handleStatusUpdate = async (
     no_pengajuan: string,
-    status: 'Disetujui' | 'Ditolak' | 'Menunggu'
+    status: 'Disetujui' | 'Ditolak' | 'Proses Pengajuan'
   ) => {
+    if (!no_pengajuan) return;
     setActionLoading(no_pengajuan);
     try {
-      const res = await fetch(`${API_BASE}/api/cuti/${no_pengajuan}/status`, {
+      const res = await fetch(`${API_BASE}/api/cuti/${encodeURIComponent(no_pengajuan)}/status`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -312,14 +351,16 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
 
   // ── Filter & Pagination ────────────────────────────────────────────────────
 
-  const filteredData = data.filter((item) => {
+  const filteredData = data.filter((item, index) => {
     const matchStatus =
       statusFilter === 'Semua' ||
       (statusFilter === 'Menunggu' && isPending(item.status)) ||
-      item.status === statusFilter;
+      (statusFilter === 'Disetujui' && item.status === 'Disetujui') ||
+      (statusFilter === 'Ditolak' && item.status === 'Ditolak');
 
     const q = searchTerm.toLowerCase();
     const matchSearch =
+      !q ||
       (item.nama_pegawai ?? '').toLowerCase().includes(q) ||
       (item.no_pengajuan ?? '').toLowerCase().includes(q) ||
       (item.departemen ?? '').toLowerCase().includes(q) ||
@@ -465,9 +506,9 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
               <AnimatePresence>
                 {paginatedData.length > 0 ? (
-                  paginatedData.map((item) => (
+                  paginatedData.map((item, idx) => (
                     <CutiCard
-                      key={item.no_pengajuan}
+                      key={item.no_pengajuan ? item.no_pengajuan : `row-${idx}`}
                       item={item}
                       actionLoading={actionLoading}
                       onUpdate={handleStatusUpdate}
@@ -502,18 +543,36 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
                   >
                     <ChevronLeft className="w-4 h-4 text-gray-600" />
                   </button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${currentPage === page
-                          ? 'bg-blue-600 text-white'
-                          : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                    >
-                      {page}
-                    </button>
-                  ))}
+                  {(() => {
+                    const pages: (number | 'ellipsis-start' | 'ellipsis-end')[] = [];
+                    if (totalPages <= 7) {
+                      for (let i = 1; i <= totalPages; i++) pages.push(i);
+                    } else {
+                      pages.push(1);
+                      if (currentPage > 4) pages.push('ellipsis-start');
+                      const start = Math.max(2, currentPage - 1);
+                      const end = Math.min(totalPages - 1, currentPage + 1);
+                      for (let i = start; i <= end; i++) pages.push(i);
+                      if (currentPage < totalPages - 3) pages.push('ellipsis-end');
+                      pages.push(totalPages);
+                    }
+                    return pages.map((page, idx) =>
+                      page === 'ellipsis-start' || page === 'ellipsis-end' ? (
+                        <span key={`ellipsis-${idx}`} className="w-9 h-9 flex items-center justify-center text-gray-400 text-sm select-none">…</span>
+                      ) : (
+                        <button
+                          key={`page-${page}`}
+                          onClick={() => setCurrentPage(page)}
+                          className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${currentPage === page
+                              ? 'bg-blue-600 text-white'
+                              : 'text-gray-600 hover:bg-gray-100'
+                            }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                    );
+                  })()}
                   <button
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}

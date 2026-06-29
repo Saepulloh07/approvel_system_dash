@@ -5,12 +5,12 @@ const updateStatusCuti = async (req, res) => {
         const { no_pengajuan } = req.params;
         const { status } = req.body;
 
-        // 1. Validasi input status agar sistem tidak menerima input sembarangan
-        const validStatus = ['Disetujui', 'Ditolak'];
+        // 1. Validasi input — sesuai nilai aktual di DB
+        const validStatus = ['Disetujui', 'Ditolak', 'Proses Pengajuan'];
         if (!validStatus.includes(status)) {
             return res.status(400).json({
                 success: false,
-                message: 'Status tidak valid. Gunakan "Disetujui" atau "Ditolak".'
+                message: `Status tidak valid. Gunakan salah satu dari: ${validStatus.join(', ')}.`
             });
         }
 
@@ -33,9 +33,6 @@ const updateStatusCuti = async (req, res) => {
             [status, no_pengajuan]
         );
 
-        // Opsional: Anda bisa menggunakan req.user (dari JWT) untuk mencatat siapa yang melakukan approve
-        // console.log(`Cuti ${no_pengajuan} diubah menjadi ${status} oleh user ID: ${req.user.id}`);
-
         res.status(200).json({
             success: true,
             message: `Pengajuan cuti ${no_pengajuan} berhasil diupdate menjadi ${status}.`
@@ -52,8 +49,6 @@ const updateStatusCuti = async (req, res) => {
 
 const getListCuti = async (req, res) => {
     try {
-        // Query SQL menggunakan LEFT JOIN untuk menggabungkan data
-        // Kita alias-kan pengajuan_cuti sebagai 'pc' dan pegawai sebagai 'p'
         const query = `
             SELECT 
                 pc.no_pengajuan, 
