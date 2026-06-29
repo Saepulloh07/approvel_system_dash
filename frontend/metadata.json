@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Approval Cuti",
+  "description": "Website untuk approval pengajuan cuti pegawai yang menarik dan user-friendly.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
